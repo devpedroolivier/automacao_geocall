@@ -1,0 +1,4 @@
+.venv/
+dados/
+chromedriver.exe
+config.json
