@@ -32,6 +32,23 @@ options.add_experimental_option("prefs", prefs)
 service = Service()
 driver = webdriver.Chrome(service=service, options=options)
 
+# FLAG PARA BUSCAR HISTÓRICO OU DIA CORRENTE
+# True -> busca de 01/01 até hoje (inicial)
+# False -> busca só o dia corrente (incremental)
+busca_historico = True
+
+hoje = datetime.now()
+data_hoje = hoje.strftime("%d/%m/%Y")
+
+if busca_historico:
+    data_de = f"01/01/{hoje.strftime('%Y')}"
+    data_ate = data_hoje
+else:
+    data_de = data_hoje
+    data_ate = data_hoje
+
+print(f"[INFO] Buscando dados de {data_de} até {data_ate}")
+
 try:
     driver.get(site_config["url"])
     print("[INFO] Site carregado.")
@@ -72,9 +89,9 @@ try:
     print("[INFO] Checkbox 'Manobra Finalizada' clicado.")
     driver.save_screenshot("pos_checkbox.png")
 
-    # Preencher datas
-    driver.execute_script('document.querySelector("input[name=\'_InXSVIAMANVALVECLOSINGFROM_D_VAL\']").value = "07/07/2025";')
-    driver.execute_script('document.querySelector("input[name=\'_InXSVIAMANVALVECLOSINGTO_D_VAL\']").value = "08/07/2025";')
+    # Preencher datas calculadas
+    driver.execute_script(f'document.querySelector("input[name=\'_InXSVIAMANVALVECLOSINGFROM_D_VAL\']").value = "{data_de}";')
+    driver.execute_script(f'document.querySelector("input[name=\'_InXSVIAMANVALVECLOSINGTO_D_VAL\']").value = "{data_ate}";')
     print("[INFO] Datas preenchidas.")
     driver.save_screenshot("pos_datas.png")
 

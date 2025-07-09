@@ -1,0 +1,22 @@
+version: "3.9"
+
+services:
+  api:
+    build: .
+    container_name: fastapi_app
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./dados:/app/dados
+    restart: always
+
+  scheduler:
+    build: .
+    container_name: extractor_scheduler
+    working_dir: /app
+    volumes:
+      - .:/app
+      - ./dados:/app/dados
+    entrypoint: ["bash", "-c", "while true; do python app/extrair_dados.py && python -m app.import_excel; sleep 86400; done"]
+    restart: always
+
