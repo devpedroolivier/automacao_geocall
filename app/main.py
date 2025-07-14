@@ -2,8 +2,12 @@ from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session
 from .database import SessionLocal
 from . import models
+from extrair_dados import limpar_pasta
 
 app = FastAPI()
+
+limpar_pasta("./dados", "xlsx")
+limpar_pasta("./imagens", "png")
 
 # Dependência para abrir e fechar conexão com o banco
 def get_db():
@@ -36,10 +40,12 @@ def get_manobras(db: Session = Depends(get_db)):
             "residencial": m.residencial,
             "comercial": m.comercial,
             "industrial": m.industrial,
-            "publico": m.publico
+            "publico": m.publico,
+            "motivo_da_manobra": m.motivo_da_manobra  # NOVO
         }
         for m in manobras
     ]
+
 
 @app.get("/manobras/{manobra_id}")
 def get_manobra_by_id(manobra_id: int, db: Session = Depends(get_db)):
@@ -61,5 +67,6 @@ def get_manobra_by_id(manobra_id: int, db: Session = Depends(get_db)):
         "residencial": manobra.residencial,
         "comercial": manobra.comercial,
         "industrial": manobra.industrial,
-        "publico": manobra.publico
+        "publico": manobra.publico,
+        "motivo_da_manobra": manobra.motivo_da_manobra
     }

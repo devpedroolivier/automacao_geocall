@@ -17,6 +17,5 @@ services:
     volumes:
       - .:/app
       - ./dados:/app/dados
-    entrypoint: ["bash", "-c", "while true; do python app/extrair_dados.py && python -m app.import_excel; sleep 86400; done"]
+    entrypoint: ["bash", "-c", "while true; do python app/extrair_dados.py; for f in /app/dados/Manobra_*.xlsx; do echo '[INFO] Importando $f...' && python -m app.import_excel $f; done; sleep 86400; done"]
     restart: always
-

@@ -1,8 +1,13 @@
 import json
 import time
 import os
-from datetime import datetime
+import shutil
+import random
+from datetime import datetime, timedelta
 import pandas as pd
+import pytz
+import glob
+import subprocess
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
@@ -11,48 +16,82 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
-# Carregar config.json
-with open("config.json", encoding="utf-8") as f:
-    config = json.load(f)
-site_config = config["site"]
+tz = pytz.timezone("America/Sao_Paulo")
+hoje = datetime.now(tz)
+inicio_ano = datetime(hoje.year, 1, 1, tzinfo=tz)
 
-# Diretório para downloads
-download_dir = "C:\\Users\\Pedri\\automacap_geocall\\dados"
+# 🔥 Limpar cache antigo (opcional, pois perfil é randômico)
+try:
+    shutil.rmtree("/tmp/chrome_profile")
+    print("[INFO] Perfil Chrome anterior removido.")
+except FileNotFoundError:
+    pass
 
-# Configuração do Chrome
+# Diretório de downloads
+download_dir = "/app/dados"
+
+# Preparar perfil aleatório
+profile_path = f"/tmp/chrome_profile_{random.randint(1, 100000)}"
+
+# Config Chrome
 options = Options()
+options.add_argument("--headless")
+options.add_argument("--no-sandbox")
+options.add_argument("--disable-dev-shm-usage")
+options.add_argument(f"--user-data-dir={profile_path}")
 options.add_argument("--start-maximized")
 prefs = {
     "download.default_directory": download_dir,
     "download.prompt_for_download": False,
-    "directory_upgrade": True
+    "directory_upgrade": True,
+    "safebrowsing.enabled": True,
+    "profile.default_content_settings.popups": 0,
+    "profile.default_content_setting_values.automatic_downloads": 1
 }
 options.add_experimental_option("prefs", prefs)
+
+# Carregar config
+with open("config.json", encoding="utf-8") as f:
+    config = json.load(f)
+site_config = config["site"]
 
 service = Service()
 driver = webdriver.Chrome(service=service, options=options)
 
-# FLAG PARA BUSCAR HISTÓRICO OU DIA CORRENTE
-# True -> busca de 01/01 até hoje (inicial)
-# False -> busca só o dia corrente (incremental)
-busca_historico = True
 
-hoje = datetime.now()
-data_hoje = hoje.strftime("%d/%m/%Y")
+def limpar_pasta(caminho_pasta, extensao):
+    """
+    Remove todos os arquivos com a extensão especificada de uma pasta.
+    
+    :param caminho_pasta: Caminho da pasta que será limpa
+    :param extensao: Extensão dos arquivos a serem deletados (ex: 'xlsx', 'png')
+    """
+    padrao = os.path.join(caminho_pasta, f'*.{extensao}')
+    arquivos = glob.glob(padrao)
+    
+    for arquivo in arquivos:
+        try:
+            os.remove(arquivo)
+            print(f'🗑️ Arquivo removido: {arquivo}')
+        except Exception as e:
+            print(f'❌ Erro ao remover {arquivo}: {e}')
 
-if busca_historico:
-    data_de = f"01/01/{hoje.strftime('%Y')}"
-    data_ate = data_hoje
-else:
-    data_de = data_hoje
-    data_ate = data_hoje
 
-print(f"[INFO] Buscando dados de {data_de} até {data_ate}")
+def gerar_periodos(data_inicio, data_fim, dias=5):
+    periodos = []
+    atual = data_inicio
+    while atual <= data_fim:
+        prox = atual + timedelta(days=dias-1)
+        if prox > data_fim:
+            prox = data_fim
+        periodos.append((atual.strftime("%d/%m/%Y"), prox.strftime("%d/%m/%Y")))
+        atual = prox + timedelta(days=1)
+    return periodos
 
 try:
     driver.get(site_config["url"])
     print("[INFO] Site carregado.")
-    wait = WebDriverWait(driver, 20)
+    wait = WebDriverWait(driver, 30)
 
     iframe = wait.until(EC.presence_of_element_located((By.NAME, "mainFrame")))
     driver.switch_to.frame(iframe)
@@ -69,78 +108,85 @@ try:
     driver.save_screenshot("pos_login.png")
     time.sleep(3)
 
-    manobra_btn = wait.until(EC.element_to_be_clickable((By.XPATH, '//*[@id="TBB_tbm2"]/div[8]')))
-    manobra_btn.click()
-    print("[INFO] Clicou em manobra.")
-    driver.save_screenshot("pos_manobra.png")
-    time.sleep(3)
+    periodos = gerar_periodos(inicio_ano, hoje, dias=5)
+    max_retries = 3
 
-    # Checkbox
-    checkbox = wait.until(EC.presence_of_element_located((By.XPATH,
-        '/html/body/div[2]/table/tbody/tr[2]/td/table/tbody/tr/td/div[1]/div[2]/div/form/table/tbody/tr[12]/td[2]/div/div')))
-    driver.execute_script("""
-        var evt = new MouseEvent('mousedown', {
-            bubbles: true,
-            cancelable: true,
-            view: window
-        });
-        arguments[0].dispatchEvent(evt);
-    """, checkbox)
-    print("[INFO] Checkbox 'Manobra Finalizada' clicado.")
-    driver.save_screenshot("pos_checkbox.png")
+    for idx, (data_de, data_ate) in enumerate(periodos, start=1):
+        print(f"[INFO] 🔄 Buscando dados de {data_de} até {data_ate} (janela {idx}/{len(periodos)})")
+        retries = 0
+        while retries < max_retries:
+            try:
+                manobra_btn = wait.until(EC.element_to_be_clickable((By.XPATH, '//*[@id="TBB_tbm2"]/div[8]')))
+                manobra_btn.click()
+                time.sleep(2)
 
-    # Preencher datas calculadas
-    driver.execute_script(f'document.querySelector("input[name=\'_InXSVIAMANVALVECLOSINGFROM_D_VAL\']").value = "{data_de}";')
-    driver.execute_script(f'document.querySelector("input[name=\'_InXSVIAMANVALVECLOSINGTO_D_VAL\']").value = "{data_ate}";')
-    print("[INFO] Datas preenchidas.")
-    driver.save_screenshot("pos_datas.png")
+                checkbox = wait.until(EC.presence_of_element_located((By.XPATH,
+                    '/html/body/div[2]/table/tbody/tr[2]/td/table/tbody/tr/td/div[1]/div[2]/div/form/table/tbody/tr[12]/td[2]/div/div')))
+                driver.execute_script("""
+                    var evt = new MouseEvent('mousedown', {
+                        bubbles: true,
+                        cancelable: true,
+                        view: window
+                    });
+                    arguments[0].dispatchEvent(evt);
+                """, checkbox)
+                time.sleep(1)
 
-    # Buscar
-    buscar_btn = wait.until(EC.presence_of_element_located((By.XPATH, '//button[contains(@onclick, "SearchEntity#")]')))
-    driver.execute_script("arguments[0].click();", buscar_btn)
-    print("[INFO] Clicou no botão Buscar.")
-    driver.save_screenshot("pos_busca.png")
-    time.sleep(5)
+                driver.execute_script(f'document.querySelector("input[name=\'_InXSVIAMANVALVECLOSINGFROM_D_VAL\']").value = "{data_de}";')
+                driver.execute_script(f'document.querySelector("input[name=\'_InXSVIAMANVALVECLOSINGTO_D_VAL\']").value = "{data_ate}";')
+                driver.save_screenshot(f"./images/datas_{idx}.png")
 
-    # Menu três listras
-    tres_listras = wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, 'img.icon_menu[alt="Ações"]')))
-    driver.execute_script("arguments[0].click();", tres_listras)
-    print("[INFO] Clicou nas três listras (menu Ações).")
-    driver.save_screenshot("pos_menu_acoes.png")
-    time.sleep(2)
+                buscar_btn = wait.until(EC.presence_of_element_located((By.XPATH, '//button[contains(@onclick, "SearchEntity#")]')))
+                driver.execute_script("arguments[0].click();", buscar_btn)
+                time.sleep(5)
 
-    # Relatório
-    relatorio_item = wait.until(EC.element_to_be_clickable((By.XPATH, '//*[contains(text(),"Relatório de Manobra")]')))
-    driver.execute_script("arguments[0].click();", relatorio_item)
-    print("[INFO] Clicou na opção Relatório de Manobra.")
-    driver.save_screenshot("pos_relatorio.png")
+                tres_listras = wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, 'img.icon_menu[alt="Ações"]')))
+                driver.execute_script("arguments[0].click();", tres_listras)
+                time.sleep(1)
 
-    # Espera flexível pelo download do .xls
-    print("[INFO] Aguardando download do arquivo Excel (.xls)...")
-    timeout = 180
-    start_time = time.time()
-    xls_file = None
+                relatorio_item = wait.until(EC.element_to_be_clickable((By.XPATH, '//*[contains(text(),"Relatório de Manobra")]')))
+                driver.execute_script("arguments[0].click();", relatorio_item)
 
-    while True:
-        arquivos = os.listdir(download_dir)
-        xls_files = [f for f in arquivos if f.startswith("ExcelManobra_") and f.endswith(".xls")]
-        if xls_files:
-            xls_file = xls_files[0]
-            print(f"[INFO] Arquivo gerado: {xls_file}")
-            break
-        if time.time() - start_time > timeout:
-            raise Exception("[ERRO] Timeout esperando download do Excel.")
-        time.sleep(2)
+                print("[INFO] Aguardando download do arquivo Excel (.xls)...")
+                timeout = 900
+                start_time = time.time()
+                xls_file = None
 
-    # Converter para .xlsx e renomear
-    xls_path = os.path.join(download_dir, xls_file)
-    novo_nome = f"Manobra_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-    novo_path = os.path.join(download_dir, novo_nome)
+                while True:
+                    arquivos = os.listdir(download_dir)
+                    xls_files = [f for f in arquivos if f.startswith("ExcelManobra_") and f.endswith(".xls")]
+                    if xls_files:
+                        xls_file = xls_files[0]
+                        print(f"[INFO] Arquivo gerado: {xls_file}")
+                        break
+                    if time.time() - start_time > timeout:
+                        raise Exception(f"Timeout esperando download do Excel para o período {data_de} - {data_ate}")
+                    time.sleep(2)
 
-    df = pd.read_excel(xls_path)
-    df.to_excel(novo_path, index=False)
-    os.remove(xls_path)
-    print(f"[INFO] Arquivo convertido para {novo_nome} e original .xls removido.")
+                xls_path = os.path.join(download_dir, xls_file)
+                novo_nome = f"Manobra_{datetime.now(tz).strftime('%Y%m%d_%H%M%S')}_{idx}.xlsx"
+                novo_path = os.path.join(download_dir, novo_nome)
+
+                try:
+                    df = pd.read_excel(xls_path, engine='xlrd')
+                except Exception as e:
+                    raise Exception(f"[ERRO] Falha ao ler o XLS {xls_path}: {e}")
+
+                df.to_excel(novo_path, index=False)
+                os.remove(xls_path)
+                print(f"[INFO] ✅ Arquivo convertido para {novo_nome} e original .xls removido.")
+
+                print(f"[INFO] Iniciando importação do arquivo {novo_path}...")
+                subprocess.run(["python", "-m", "app.import_excel", novo_path], check=True)
+                print(f"[INFO] Importação do {novo_nome} concluída.")
+                break  # tudo certo, sai do while
+            except Exception as e:
+                retries += 1
+                print(f"[WARN] Tentativa {retries}/{max_retries} falhou para {data_de}-{data_ate}: {e}")
+                if retries >= max_retries:
+                    raise Exception(f"[ERRO] Falhou {max_retries} vezes para {data_de} - {data_ate}. Abortando.")
+                print("[INFO] Re-tentando operação...")
+                time.sleep(5)
 
 except Exception as e:
     print(f"[FALHA] {e}")

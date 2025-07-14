@@ -1,5 +1,5 @@
 from sqlalchemy import Column, Integer, String, DateTime
-from .database import Base  # Corrigido
+from .database import Base
 
 class Manobra(Base):
     __tablename__ = "manobras"
@@ -19,3 +19,4 @@ class Manobra(Base):
     comercial = Column(Integer)
     industrial = Column(Integer)
     publico = Column(Integer)
+    motivo_da_manobra = Column(String)  # NOVO CAMPO

@@ -6,3 +6,5 @@ numpy==1.24.3
 pytest==8.4.1
 selenium==4.10.0
 python-dotenv==1.0.0
+openpyxl==3.1.2
+xlrd==2.0.1
